@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Car Repair Tracker</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Google Font (Inter) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Load html2canvas for snapshot feature -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- Configure Tailwind for dark mode and Inter font -->
+    <script>
+        tailwind.config = {
+            darkMode: 'class', // This app is dark mode by default
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                },
+            },
+        }
+    </script>
+    <!-- Basic styling -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            /* Ensure canvas capture has the right background */
+            background-color: #111827; 
+        }
+        /* Simple loading spinner */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid #6366F1; /* Indigo */
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex items-center justify-center p-4">
+
+    <main id="capture-area" class="container mx-auto max-w-2xl w-full bg-gray-900 p-4 rounded-lg">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl sm:text-4xl font-bold text-indigo-400">Car Repair Tracker</h1>
+            <p class="text-gray-400 text-sm mt-2" id="auth-status">Connecting...</p>
+        </header>
+
+        <!-- Loading Spinner -->
+        <div id="loading-spinner" class="flex justify-center items-center h-64">
+            <div class="spinner"></div>
+        </div>
+
+        <!-- Main Content (hidden until loaded) -->
+        <div id="main-content" class="hidden">
+            
+            <!-- Add Repair Form -->
+            <form id="repair-form" class="bg-gray-800 p-6 rounded-lg shadow-lg mb-8">
+                <h2 class="text-2xl font-semibold mb-4 text-white">Add New Entry</h2>
+                
+                <!-- Row 1: Description -->
+                <div class="mb-4">
+                    <label for="description-input" class="block text-sm font-medium text-gray-300 mb-1">Repair or Part</label>
+                    <input type="text" id="description-input" placeholder="e.g., Oil Change, New Tires" required
+                           class="w-full bg-gray-700 border border-gray-600 rounded-md p-3 text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all">
+                </div>
+
+                <!-- Row 2: Cost and Paid By -->
+                <div class="flex flex-col sm:flex-row gap-4 mb-4">
+                    <!-- Cost Input -->
+                    <div class="sm:w-1/2">
+                        <label for="cost-input" class="block text-sm font-medium text-gray-300 mb-1">Cost ($)</label>
+                        <input type="number" id="cost-input" placeholder="100.00" min="0.01" step="0.01" required
+                               class="w-full bg-gray-700 border border-gray-600 rounded-md p-3 text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all">
+                    </div>
+                    <!-- Paid By Input -->
+                    <div class="sm:w-1/2">
+                        <label for="paid-by-input" class="block text-sm font-medium text-gray-300 mb-1">Paid By</Dlabel>
+                        <input type="text" id="paid-by-input" placeholder="e.g., John Doe" required
+                               class="w-full bg-gray-700 border border-gray-600 rounded-md p-3 text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all">
+                    </div>
+                </div>
+
+                <!-- Error Message -->
+                <p id="error-message" class="text-red-400 text-sm mt-2 hidden"></p>
+                
+                <!-- Submit Button -->
+                <button type="submit" id="submit-button"
+                        class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-md transition-colors duration-200 mt-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    Add Entry
+                </button>
+            </form>
+
+            <!-- Total Spent & Snapshot Button -->
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg mb-8">
+                <div class="flex flex-col sm:flex-row justify-between items-center text-center sm:text-left">
+                    <div>
+                        <h2 class="text-xl font-semibold text-gray-300 uppercase tracking-wider">Total Spent</h2>
+                        <span id="total-cost" class="block text-5xl font-bold text-green-400 mt-1">$0.00</span>
+                    </div>
+                    <button id="download-button" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-5 rounded-md transition-colors duration-200 mt-4 sm:mt-0 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Download Snapshot (JPG)
+                    </button>
+                </div>
+            </div>
+
+            <!-- Repair List -->
+            <div class="space-y-4" id="repair-list">
+                <!-- Repair items will be dynamically inserted here -->
+            </div>
+            <p id="empty-list-message" class="text-center text-gray-500 py-8 hidden">No repairs logged yet. Add one above to get started!</p>
+        </div>
+    </main>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            signInWithCustomToken, // Kept import just in case, but not used
+            onAuthStateChanged 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            collection, 
+            doc, 
+            addDoc, 
+            deleteDoc, 
+            onSnapshot, 
+            query, 
+            serverTimestamp,
+            setLogLevel
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- GLOBAL CONFIG AND VARS ---
+        
+        // This is YOUR Firebase config that you provided
+        const firebaseConfig = {
+          apiKey: "AIzaSyB9Ts80yp-wmOe7gIKmoRKTTxtLRwbVsXc",
+          authDomain: "repair-tracker-8943d.firebaseapp.com",
+          projectId: "repair-tracker-8943d",
+          storageBucket: "repair-tracker-8943d.firebasestorage.app",
+          messagingSenderId: "156808301941",
+          appId: "1:156808301941:web:3be97db4e156cbeccc573c",
+          measurementId: "G-R3041KX8K2"
+        };
+        
+        // This ID is used to create a unique database path.
+        // You can change this if you want, but 'default-car-tracker' works.
+        const appId = 'default-car-tracker';
+
+        // Enable debug logging for Firestore
+        setLogLevel('Debug');
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        let userId = null;
+        let repairsCollectionRef = null;
+
+        // --- DOM Elements ---
+        const loadingEl = document.getElementById('loading-spinner');
+        const mainContentEl = document.getElementById('main-content');
+        const authStatusEl = document.getElementById('auth-status');
+        const repairForm = document.getElementById('repair-form');
+        const descriptionInput = document.getElementById('description-input');
+        const costInput = document.getElementById('cost-input');
+        const paidByInput = document.getElementById('paid-by-input'); // New input
+        const submitButton = document.getElementById('submit-button');
+        const totalCostEl = document.getElementById('total-cost');
+        const repairListEl = document.getElementById('repair-list');
+        const errorMessageEl = document.getElementById('error-message');
+        const emptyListMessage = document.getElementById('empty-list-message');
+        const downloadButton = document.getElementById('download-button'); // New button
+        const captureArea = document.getElementById('capture-area');
+
+        // --- AUTHENTICATION ---
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                // User is signed in
+                userId = user.uid;
+                authStatusEl.textContent = `Connected (User ID: ${userId.substring(0, 8)}...)`;
+                
+                // Set up the collection reference now that we have the userId
+                // This path ensures data is stored privately for the anonymous user
+                repairsCollectionRef = collection(db, 'artifacts', appId, 'users', userId, 'repairs');
+                
+                // Start listening for data
+                listenForRepairs();
+
+            } else {
+                // User is signed out, try to sign in
+                userId = null;
+                authStatusEl.textContent = 'Authenticating...';
+                try {
+                    // This is the change for GitHub Pages:
+                    // We automatically sign the user in anonymously.
+                    await signInAnonymously(auth);
+                    
+                } catch (error) {
+                    console.error("Authentication error:", error);
+                    authStatusEl.textContent = 'Authentication failed. Please refresh.';
+                    errorMessageEl.textContent = 'Could not connect to database. Please refresh.';
+                    errorMessageEl.classList.remove('hidden');
+                }
+            }
+        });
+
+        // --- FIRESTORE REAL-TIME LISTENER ---
+        function listenForRepairs() {
+            if (!repairsCollectionRef) return;
+
+            // Show content and hide spinner
+            loadingEl.classList.add('hidden');
+            mainContentEl.classList.remove('hidden');
+
+            const q = query(repairsCollectionRef);
+            
+            onSnapshot(q, (snapshot) => {
+                let repairs = [];
+                let total = 0;
+
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    repairs.push({ id: doc.id, ...data });
+                    total += Number(data.cost) || 0;
+                });
+
+                // Sort by timestamp, newest first
+                repairs.sort((a, b) => {
+                    const timeA = a.timestamp?.toMillis() || 0;
+                    const timeB = b.timestamp?.toMillis() || 0;
+                    return timeB - timeA;
+                });
+
+                // Update the UI
+                updateUI(repairs, total);
+
+            }, (error) => {
+                console.error("Error listening to repairs:", error);
+                errorMessageEl.textContent = 'Error loading data. Try refreshing.';
+                errorMessageEl.classList.remove('hidden');
+            });
+        }
+
+        // --- UI RENDERING ---
+        function updateUI(repairs, total) {
+            // Update total cost
+            totalCostEl.textContent = `$${total.toFixed(2)}`;
+
+            // Clear existing list
+            repairListEl.innerHTML = '';
+
+            if (repairs.length === 0) {
+                emptyListMessage.classList.remove('hidden');
+            } else {
+                emptyListMessage.classList.add('hidden');
+                // Populate new list
+                repairs.forEach(repair => {
+                    const itemEl = document.createElement('div');
+                    itemEl.className = 'bg-gray-800 p-4 rounded-lg shadow-md flex justify-between items-start transition-all opacity-0 translate-y-2';
+                    
+                    // Format timestamp
+                    let dateString = 'Just now';
+                    if (repair.timestamp) {
+                        dateString = new Date(repair.timestamp.toMillis()).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric'
+                        });
+                    }
+
+                    // Display 'Paid by' info
+                    const paidByText = repair.paidBy ? `Paid by: ${escapeHTML(repair.paidBy)}` : 'Payer not specified';
+
+                    itemEl.innerHTML = `
+                        <div class="flex-grow pr-4">
+                            <span class="block text-lg font-medium text-white">${escapeHTML(repair.description)}</span>
+                            <span class="block text-sm text-gray-400">${dateString}</span>
+                            <span class="block text-sm text-gray-500 mt-1">${paidByText}</span>
+                        </div>
+                        <div class="text-right flex-shrink-0">
+                            <span class="block text-xl font-semibold text-green-400">$${Number(repair.cost).toFixed(2)}</span>
+                            <button class="text-xs text-red-400 hover:text-red-300 transition-colors mt-2 delete-btn" data-id="${repair.id}">
+                                Delete
+                            </button>
+                        </div>
+                    `;
+                    repairListEl.appendChild(itemEl);
+                    // Simple fade-in animation
+                    setTimeout(() => {
+                        itemEl.classList.remove('opacity-0', 'translate-y-2');
+                        itemEl.classList.add('opacity-100', 'translate-y-0');
+                    }, 10);
+                });
+            }
+
+            // Re-attach delete listeners
+            attachDeleteListeners();
+        }
+
+        // --- EVENT HANDLERS ---
+        
+        // Handle Form Submission (Add Repair)
+        repairForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!userId) {
+                showError('Not authenticated. Please wait or refresh.');
+                return;
+            }
+
+            const description = descriptionInput.value.trim();
+            const cost = parseFloat(costInput.value);
+            const paidBy = paidByInput.value.trim(); // Get new value
+
+            // Validation
+            if (!description || !cost || cost <= 0 || !paidBy) { // Added paidBy to validation
+                showError('Please enter a valid description, cost, and payer.');
+                return;
+            }
+            
+            // Disable button to prevent double submit
+            submitButton.disabled = true;
+            submitButton.textContent = 'Adding...';
+
+            try {
+                const newRepair = {
+                    description: description,
+                    cost: cost,
+                    paidBy: paidBy, // Add to database object
+                    timestamp: serverTimestamp() // Use server time
+                };
+                await addDoc(repairsCollectionRef, newRepair);
+                
+                // Clear form and error
+                repairForm.reset();
+                hideError();
+
+            } catch (error) {
+                console.error("Error adding document: ", error);
+                showError('Failed to add entry. Please try again.');
+            } finally {
+                // Re-enable button
+                submitButton.disabled = false;
+                submitButton.textContent = 'Add Entry';
+            }
+        });
+
+        // Handle Download Snapshot Button
+        downloadButton.addEventListener('click', async () => {
+            downloadButton.disabled = true;
+            downloadButton.textContent = 'Generating...';
+
+            try {
+                // Use html2canvas to capture the 'capture-area' element
+                const canvas = await html2canvas(captureArea, {
+                    backgroundColor: '#111827', // Ensure background is dark
+                    scale: 2 // Increase resolution for better quality
+                });
+                
+                // Convert canvas to JPEG data URL
+                const imgData = canvas.toDataURL('image/jpeg', 0.9); // 0.9 = 90% quality
+
+                // Create a temporary link to trigger download
+                const link = document.createElement('a');
+                link.href = imgData;
+                
+                // Create a dynamic filename with date
+                const date = new Date();
+                const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+                link.download = `car-repairs-snapshot-${formattedDate}.jpg`;
+                
+                //Trigger the download
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+            } catch (error) {
+                console.error('Error generating image:', error);
+                // Can't use custom modals here, so alert is a fallback
+                alert('Sorry, there was an error generating the image.'); 
+            } finally {
+                downloadButton.disabled = false;
+                downloadButton.textContent = 'Download Snapshot (JPG)';
+            }
+        });
+
+        // Attach listeners to delete buttons
+        function attachDeleteListeners() {
+            repairListEl.querySelectorAll('.delete-btn').forEach(button => {
+                // Remove old listener to prevent duplicates
+                button.replaceWith(button.cloneNode(true));
+            });
+
+            // Add new listeners
+            repairListEl.querySelectorAll('.delete-btn').forEach(button => {
+                button.addEventListener('click', handleDelete);
+            });
+        }
+
+        // Handle Delete Button Click
+        async function handleDelete(e) {
+            if (!userId) {
+                showError('Not authenticated. Please wait or refresh.');
+                return;
+            }
+
+            const id = e.target.dataset.id;
+            if (!id) return;
+
+            // Optimistic UI update
+            const itemToRemove = e.target.closest('.bg-gray-800');
+            if (itemToRemove) {
+                itemToRemove.classList.add('opacity-0', 'scale-95');
+                setTimeout(() => itemToRemove.remove(), 300);
+            }
+
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'users', userId, 'repairs', id);
+                await deleteDoc(docRef);
+            } catch (error)
+                {
+                console.error("Error deleting document: ", error);
+                showError('Failed to delete entry. Please refresh.');
+                // Note: The onSnapshot listener will eventually correct the UI
+            }
+        }
+        
+        // --- UTILITY FUNCTIONS ---
+        function showError(message) {
+            errorMessageEl.textContent = message;
+            errorMessageEl.classList.remove('hidden');
+        }
+
+        function hideError() {
+            errorMessageEl.classList.add('hidden');
+        }
+
+        function escapeHTML(str) {
+            if (typeof str !== 'string') return '';
+            return str.replace(/[&<>"']/g, function(m) {
+                        return {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#39;'
+                }[m];
+            });
+        }
+    </script>
+</body>
+</html>
+         
